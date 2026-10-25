@@ -1,4 +1,5 @@
-# 🧠 Knowledge Index (Karpathy LLM Wiki)
+# 🧠 Elmu Library 
+**`Knowledge Library based on Karpathy LLM Wiki`**
 
 A persistent, compounding personal knowledge base built on the **Andrej Karpathy LLM Wiki Pattern**.
 
