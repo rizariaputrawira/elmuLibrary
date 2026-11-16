@@ -1,6 +1,7 @@
 ---
 title: "{Domain} Index"
 tags: [index, domain]
+version: "meta"
 updated: {YYYY-MM-DD}
 sources: []
 summary: "Catalog and navigation index for the {domain} topic area."

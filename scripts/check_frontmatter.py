@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Frontmatter linter for a Karpathy-style LLM wiki.
 
-Validates that every non-admin wiki note contains all 7 mandatory YAML
+Validates that every compiled wiki note contains all 7 mandatory YAML
 frontmatter fields and that none are empty or missing.
 
 Mandatory fields: title, tags, version, updated, sources, summary, aliases
@@ -12,7 +12,7 @@ Exit code semantics:
 
 Usage: check_frontmatter.py [project-root] [article.md ...]
 Defaults: project-root is current directory; all wiki/**/*.md articles
-except admin/, index.md, and log.md are checked.
+except index.md and log.md are checked.
 """
 
 from __future__ import annotations
@@ -25,11 +25,11 @@ MANDATORY_FIELDS = ["title", "tags", "version", "updated", "sources", "summary",
 
 # Same skip logic as check_evidence.py
 SKIP_FILES = {"index.md", "log.md"}
-SKIP_SUBSTRINGS = {"admin/", "references/", "meta/", "core-system-rules/"}
 
 
-GENERIC_VER_RE = re.compile(r"^(?:v?\d+(?:\.\d+)*(?:[-_][a-zA-Z0-9]+)?|meta)$")
+GENERIC_VER_RE = re.compile(r"^(?:v?\d+(?:[._-]\d+)*(?:-[a-zA-Z0-9._-]+)?|meta)$")
 POISON_VALUES = {"latest", "tbd", "current", "unknown", "none", "unreleased"}
+FRONTMATTER_RE = re.compile(r"^\s*---\s*\n(.*?)\n---\s*(\n|$)", re.DOTALL)
 
 
 def is_empty_value(raw: str) -> bool:
@@ -48,7 +48,7 @@ def validate_version_syntax(val: str) -> bool:
 
 def parse_frontmatter(text: str) -> dict[str, str] | None:
     """Return a dict of frontmatter fields, or None if no valid frontmatter."""
-    m = re.match(r"^\s*---\s*\n(.*?)\n---\s*(\n|$)", text, re.DOTALL)
+    m = FRONTMATTER_RE.match(text)
     if not m:
         return None
     fm_text = m.group(1)
@@ -68,6 +68,33 @@ def parse_frontmatter(text: str) -> dict[str, str] | None:
     return fields
 
 
+def parse_provenance_blockquote(text: str) -> dict[str, str]:
+    """Extract Key: Value pairs from the blockquote immediately following the first H1."""
+    body = FRONTMATTER_RE.sub("", text, count=1)
+    state = "before_title"
+    meta: dict[str, str] = {}
+    for line in body.splitlines():
+        stripped = line.strip()
+        if state == "before_title":
+            if line.startswith("# "):
+                state = "after_title"
+        elif state == "after_title":
+            if not stripped:
+                continue
+            if stripped.startswith(">"):
+                state = "header"
+            else:
+                break
+        if state == "header":
+            if not stripped.startswith(">"):
+                break
+            content = stripped.lstrip(">").strip()
+            m_kv = re.match(r"^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$", content)
+            if m_kv:
+                meta[m_kv.group(1).lower()] = m_kv.group(2).strip()
+    return meta
+
+
 def check_note(path: Path) -> list[str]:
     """Return list of error strings for this note (empty = pass)."""
     text = path.read_text(encoding="utf-8")
@@ -75,23 +102,64 @@ def check_note(path: Path) -> list[str]:
     errors: list[str] = []
     if fields is None:
         return ["no YAML frontmatter found"]
+
+    clean_version = fields.get("version", "").strip().strip("\"'")
+    is_index = path.stem.endswith("-index")
+    allow_empty_sources = is_index or clean_version == "meta"
+
     for field in MANDATORY_FIELDS:
         if field not in fields:
             errors.append(f"missing field: {field}")
         elif is_empty_value(fields[field]):
+            if field == "sources" and allow_empty_sources:
+                continue
             errors.append(f"empty field: {field}")
 
     # Version format validation
     if "version" in fields and not is_empty_value(fields["version"]):
-        raw_version = fields["version"].strip().strip("\"'")
-        if not validate_version_syntax(raw_version):
-            errors.append(f"invalid version format: '{raw_version}'")
+        if not validate_version_syntax(clean_version):
+            errors.append(f"invalid version format: '{clean_version}'")
 
     # Optional bundle_version validation
+    clean_bundle = ""
     if "bundle_version" in fields and not is_empty_value(fields["bundle_version"]):
-        b_ver = fields["bundle_version"].strip().strip("\"'")
-        if not validate_version_syntax(b_ver) or b_ver == "meta":
-            errors.append(f"invalid bundle_version format: '{b_ver}'")
+        clean_bundle = fields["bundle_version"].strip().strip("\"'")
+        if not validate_version_syntax(clean_bundle) or clean_bundle == "meta":
+            errors.append(f"invalid bundle_version format: '{clean_bundle}'")
+
+    # Provenance blockquote consistency on compiled leaf notes
+    blockquote = parse_provenance_blockquote(text)
+    is_archived = "archive" in path.parts or "archived" in blockquote
+    if not is_index and not is_archived:
+        bq_version = blockquote.get("version", "").strip().strip("\"'")
+        if not bq_version:
+            errors.append("missing provenance header: > Version:")
+        elif clean_version and bq_version != clean_version:
+            errors.append(
+                f"provenance > Version: '{bq_version}' does not match frontmatter version '{clean_version}'"
+            )
+
+        clean_updated = fields.get("updated", "").strip().strip("\"'")
+        bq_updated = blockquote.get("updated", "").strip().strip("\"'")
+        if not bq_updated:
+            errors.append("missing provenance header: > Updated:")
+        elif clean_updated and bq_updated != clean_updated:
+            errors.append(
+                f"provenance > Updated: '{bq_updated}' does not match frontmatter updated '{clean_updated}'"
+            )
+
+        if "sources" in fields and not is_empty_value(fields["sources"]):
+            if not blockquote.get("raw", "").strip():
+                errors.append("missing provenance header: > Raw:")
+
+        if clean_bundle:
+            bq_bundle = blockquote.get("bundle", "").strip().strip("\"'")
+            if not bq_bundle:
+                errors.append("missing provenance header: > Bundle:")
+            elif bq_bundle != clean_bundle:
+                errors.append(
+                    f"provenance > Bundle: '{bq_bundle}' does not match frontmatter bundle_version '{clean_bundle}'"
+                )
 
     return errors
 
@@ -99,12 +167,7 @@ def check_note(path: Path) -> list[str]:
 def iter_notes(wiki_dir: Path):
     for path in sorted(wiki_dir.rglob("*.md")):
         rel = path.relative_to(wiki_dir).as_posix()
-        parts = path.relative_to(wiki_dir).parts
-        if (
-            rel in SKIP_FILES
-            or parts[0] == "admin"
-            or any(sub in rel for sub in SKIP_SUBSTRINGS)
-        ):
+        if rel in SKIP_FILES:
             continue
         yield path
 

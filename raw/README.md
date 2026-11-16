@@ -7,8 +7,10 @@ The LLM reads from here; it never modifies, reorganizes, or summarizes files in 
 
 ## Invariant
 
-> **Once a file is committed to `raw/`, it is immutable.**
+> **Once a file is saved to `raw/`, it is immutable.**
 > If a source needs correction, add a new file with a corrected version alongside the original. Never overwrite.
+
+This directory is **local-only and untracked by Git** (except for `raw/README.md`, `.gitkeep`, and `raw/assets/.gitkeep`) because primary sources—PDFs, papers, datasets, and downloaded assets—can grow too large to push. Keep a separate local/cloud backup of `raw/` if needed.
 
 This directory is the **source of truth** for the wiki. Every load-bearing fact (specific numbers, dates, quotes, parameters) in `wiki/` must exist verbatim in a file here. The `scripts/check_evidence.py` tool enforces this mechanically.
 
@@ -36,7 +38,7 @@ raw/assets/                 ← downloaded images (Obsidian attachment folder)
 
 ## Required Provenance Headers
 
-Every `.md` file in `raw/` must start with these headers (see `wiki/admin/references/raw-template.md`):
+Every `.md` file in `raw/` must start with these headers (see `.obsidian/templates/raw-template.md`):
 
 ```markdown
 > Source: {URL, DOI, or origin description}
@@ -62,4 +64,4 @@ If you cannot determine the `Version:` from the source document, **leave it as a
 
 - LLM-synthesized summaries (those go in `wiki/`)
 - Temporary notes or drafts
-- Any file that has been modified after initial commit
+- Any file that has been modified after initial ingestion

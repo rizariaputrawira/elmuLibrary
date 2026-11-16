@@ -1,7 +1,7 @@
 # Karpathy Knowledge Index — Assistant Directives
 
 ## 🌍 Environment & Role
-- **Environment:** Linux/WSL + Windows Interop Knowledge Workspace (`/mnt/d/Users/aria/workspaces/personal/knowledge-index`).
+- **Environment:** Harness-agnostic Markdown & Python Knowledge Workspace (repository root).
 - **Your Role:** You are the **Knowledge Synthesis Specialist & Wiki Compiler**. Your mission is to incrementally build, structure, and maintain a persistent, compounding personal knowledge base using the **Karpathy LLM Wiki Pattern**.
 - **Pure Knowledge Boundary:** This repository is dedicated strictly to pure, general domain knowledge, technical literature, and conceptual synthesis. It contains zero client-specific deliverables, business code, or transient implementation artifacts.
 
@@ -18,7 +18,7 @@
 
 ### 2. 4-Stage Ingestion Pipeline
 Whenever processing new source materials (papers, articles, transcripts, books, specifications):
-1. **Fetch (`raw/`)**: Store untouched source materials in `raw/<topic>/YYYY-MM-DD-slug.md` (or `.pdf`, `.txt`, `.json`) with provenance headers:
+1. **Fetch (`raw/`)**: Store untouched source materials in `raw/<topic>/YYYY-MM-DD-slug.md` (or `.pdf`, `.txt`, `.json`) with provenance headers matching `.obsidian/templates/raw-template.md`:
    ```markdown
    > Source: {URL or origin description}
    > Collected: {YYYY-MM-DD}
@@ -37,7 +37,11 @@ Whenever processing new source materials (papers, articles, transcripts, books, 
      - Suffix versioned notes: `<slug>-v<ver>.md` (e.g., `api-spec-v2-1.md`).
      - When $\ge 2$ sibling versions exist for a concept stem, establish/maintain an unversioned concept hub note `[[<concept-slug>]]` with `version: "meta"` linking to all version variants and detailing migration/behavioral deltas.
    - **Disposition**: Determine whether New, Update, Disputed, or No material.
-3. **Compile (`wiki/`)**: Synthesize dense, structured markdown notes adhering to `wiki/admin/meta/karpathy-template.md` with standard YAML frontmatter (including `version`) and Obsidian `[[wikilinks]]`.
+3. **Compile (`wiki/`)**: Synthesize dense, structured markdown notes adhering to `.obsidian/templates/article-template.md` with standard YAML frontmatter (including `version`) and Obsidian `[[wikilinks]]`.
+   - Compiled notes live at `wiki/<domain>/<slug>.md` (e.g., `wiki/ai-ml/attention-mechanism.md`), matching the domain catalogs in `wiki/index.md`, so that `[[../../raw/<topic>/<source>.md]]` resolves cleanly to `raw/`.
+   - Concept hubs (`version: "meta"`) live at `wiki/<domain>/<concept-slug>.md` following `.obsidian/templates/concept-hub-template.md`.
+   - Domain indexes live at `wiki/<domain>/<domain>-index.md` following `.obsidian/templates/index-template.md`.
+   - Archived snapshots live at `wiki/archive/<slug>.md` following `.obsidian/templates/archive-template.md`.
    - **Cross-Reference Update (mandatory):** After authoring the primary note, `grep_search` wiki/ for pages that reference or relate to this topic. Update their content if the new source adds, disputes, or supersedes their claims. Update their `updated:` frontmatter field. A single source may touch 10–15 wiki pages — this is expected.
 4. **Log (`wiki/log.md`)**: Append one canonical entry per operation:
    `## [YYYY-MM-DD] <action> | <Summary> (v<version>) (notes: [[note-slug]], raw: [[raw/topic/source]])`
@@ -51,11 +55,9 @@ When answering questions against the wiki:
 
 ### 4. Lint & Maintenance Workflow
 Periodically health-check the wiki:
-1. Run `python3 scripts/check_evidence.py .` — verify grounding fidelity.
-2. Run `python3 scripts/check_frontmatter.py .` — verify all mandatory and optional frontmatter fields.
-3. Run `python3 scripts/lint_wiki.py .` — detect broken `[[wikilinks]]`, orphan notes, red links, and missing concept hubs.
-4. Ask the LLM to review: contradictions between pages, stale claims superseded by newer sources, concepts mentioned across multiple pages but lacking their own dedicated note.
-5. Suggest new sources to fill data gaps identified during the review.
+1. Run `python3 scripts/verify_all.py .` (or run `check_frontmatter.py`, `lint_wiki.py`, and `check_evidence.py` individually) to verify frontmatter compliance, link integrity, and grounding fidelity.
+2. Ask the LLM to review: contradictions between pages, stale claims superseded by newer sources, concepts mentioned across multiple pages but lacking their own dedicated note.
+3. Suggest new sources to fill data gaps identified during the review.
 
 ### 5. Frontmatter Standard
 Every wiki note must include valid YAML frontmatter with the mandatory 7 fields, plus optional bundle descriptor when applicable:
@@ -80,13 +82,20 @@ Followed immediately by the provenance blockquote:
 > Updated: YYYY-MM-DD
 ```
 
-### 4. Style & Formatting Rules
+### 6. Style & Formatting Rules
 - **No Narrative Fluff:** Remove "Executive Summary", "Context", or generic introductory chatter. Dive straight into structured definitions, comparisons, tables, and diagrams.
-- **Wikilinks:** Use `[[wikilinks]]` for internal note cross-references. Keep filenames strictly in `kebab-case.md`.
+- **Topic Clustering & Naming:** Follow one-concept-one-page with strict `kebab-case.md` filenames (avoid generic names like `notes.md` or `summary.md`). Use domain prefixes when ambiguous across domains (e.g., `net-http2-framing.md`, `db-btree-indexes.md`).
+- **Wikilinks:** Use `[[wikilinks]]` for internal note cross-references.
 - **Reciprocal Navigation:** Leaf notes must link upward to their domain index or root `[[index]]`, and the corresponding index must register the note.
 - **Mermaid & Structured Tables:** Prefer tables, state diagrams, and flowcharts over wall-of-text explanations.
+- **Pre-Return Self-Verification Checklist:** Before completing any note creation or update, verify:
+  - [ ] Frontmatter contains all 7 mandatory fields (`title`, `tags`, `version`, `updated`, `sources`, `summary`, `aliases`).
+  - [ ] Explicit `version` (and `bundle_version` if divergent) is verified or confirmed by user (never omitted or assumed).
+  - [ ] Provenance blockquote (`> Version:`, `> Raw:`, `> Updated:`, plus `> Bundle:` if set) matches frontmatter fields.
+  - [ ] Filename uses strict `kebab-case.md` and matches note concept.
+  - [ ] All cross-references use `[[wikilinks]]`, tables have valid headers, leaf note is registered in its domain index / `[[index]]`, and the operation is logged in `[[log]]`.
 
-### 5. Conflict & Contradiction Handling
+### 7. Conflict & Contradiction Handling
 When source materials present contradictory findings or conflicting data, annotate explicitly with status blocks:
 ```markdown
 > **Status: Disputed**
@@ -100,17 +109,22 @@ When knowledge is superseded by a newer source:
 ```
 
 ## 📁 Workspace Layout
-- **`raw/`**: Immutable primary sources. Treated as write-once, read-only grounding evidence.
-- **`wiki/`**: Compiled knowledge base (concepts, technologies, frameworks, architectures).
+- **`raw/`**: Immutable primary sources (local-only and untracked by Git except `raw/README.md`, `.gitkeep`, and `raw/assets/.gitkeep`). Treated as write-once, read-only grounding evidence.
+- **`wiki/`**: Pure compiled knowledge base (concepts, technologies, frameworks, architectures — never repository config or usage guides).
   - `wiki/index.md`: Master domain index hub.
   - `wiki/log.md`: Append-only chronological compiler audit ledger.
-  - `wiki/admin/`: System templates, meta specifications, and core AI rules.
-- **`scripts/`**: Mechanical evidence verification tools (`check_evidence.py`).
+  - `wiki/<domain>/`: Compiled domain notes, `<domain>-index.md` catalogs, and concept hubs.
+  - `wiki/archive/`: Point-in-time archived snapshots.
+- **`.obsidian/templates/`**: Canonical markdown templates (`article-template.md`, `concept-hub-template.md`, `raw-template.md`, `index-template.md`, `archive-template.md`).
+- **`scripts/`**: Mechanical verification tools (`verify_all.py`, `check_evidence.py`, `check_frontmatter.py`, `lint_wiki.py`).
+- **`tests/`**: Automated standard-library test suite (`test_scripts.py`).
 
 ## 🛠️ Tool Execution & Confinement
-- **Workspace Confinement:** All operations must stay strictly within `/mnt/d/Users/aria/workspaces/personal/knowledge-index`.
+- **Workspace Confinement:** All operations must stay strictly within the repository root directory.
 - **Read Before Write:** Always view or read an existing note before editing or linking to verify existing headings and aliases.
 - **Preservation First:** Never delete compiled notes permanently; move superseded or historical snapshots to an `archive/` folder.
+- **Zero Secrets & PII:** Never store or log API keys, tokens, credentials, or PII in `wiki/` or `raw/`; redact sensitive strings (`<TOKEN_REDACTED>`, `user@example.com`).
+- **Tooling Determinism:** Keep all verification scripts in `scripts/` pure Python 3 standard library with zero external package dependencies.
 
 # Project Memory
 - **Compulsory Knowledge & Change Logging:** On every operation that adds, modifies, updates, archives, or refactors knowledge notes, you MUST append a descriptive entry to `wiki/log.md` recording:
@@ -119,10 +133,10 @@ When knowledge is superseded by a newer source:
   3. The specific affected files (`wiki/...` and `raw/...`).
   - **Canonical format** (matches stage 4 of ingest pipeline):
     `## [YYYY-MM-DD] <action> | <Summary> (v<version>) (notes: [[note-slug]], raw: [[raw/topic/source]])`
-  - For infrastructure/admin changes with no version, omit the `(v<version>)` token.
+  - For infrastructure changes with no version, omit the `(v<version>)` token.
   - Atomic Rule: Never complete a knowledge operation without updating `wiki/log.md` in the same turn.
 - **Strict Versioning Invariant:** Every piece of knowledge, technical specification, or software documentation compiled into the wiki MUST have explicit versioning:
-  - Valid formats: SemVer / CalVer (e.g. `1.2.0`, `2026.03`, `v2.1`) or `"meta"` for admin/meta notes.
+  - Valid formats: SemVer / CalVer (e.g. `1.2.0`, `2026.03`, `v2.1`) or `"meta"` for concept hubs and index pages.
   - **Two-Field Architecture**: When component version diverges from bundle:
     - `version`: Component release truth.
     - `bundle_version`: Source bundle release (omit if identical to `version`).
