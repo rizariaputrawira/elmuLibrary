@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Frontmatter linter for a Karpathy-style LLM wiki.
 
-Validates that every non-admin wiki note contains all 7 mandatory YAML
+Validates that every compiled wiki note contains all 7 mandatory YAML
 frontmatter fields and that none are empty or missing.
 
 Mandatory fields: title, tags, version, updated, sources, summary, aliases
@@ -12,7 +12,7 @@ Exit code semantics:
 
 Usage: check_frontmatter.py [project-root] [article.md ...]
 Defaults: project-root is current directory; all wiki/**/*.md articles
-except admin/, index.md, and log.md are checked.
+except index.md and log.md are checked.
 """
 
 from __future__ import annotations
@@ -25,7 +25,6 @@ MANDATORY_FIELDS = ["title", "tags", "version", "updated", "sources", "summary",
 
 # Same skip logic as check_evidence.py
 SKIP_FILES = {"index.md", "log.md"}
-SKIP_SUBSTRINGS = {"admin/", "references/", "meta/"}
 
 
 GENERIC_VER_RE = re.compile(r"^(?:v?\d+(?:[._-]\d+)*(?:-[a-zA-Z0-9._-]+)?|meta)$")
@@ -168,12 +167,7 @@ def check_note(path: Path) -> list[str]:
 def iter_notes(wiki_dir: Path):
     for path in sorted(wiki_dir.rglob("*.md")):
         rel = path.relative_to(wiki_dir).as_posix()
-        parts = path.relative_to(wiki_dir).parts
-        if (
-            rel in SKIP_FILES
-            or parts[0] == "admin"
-            or any(sub in rel for sub in SKIP_SUBSTRINGS)
-        ):
+        if rel in SKIP_FILES:
             continue
         yield path
 

@@ -36,7 +36,7 @@ raw/assets/                 ← downloaded images (Obsidian attachment folder)
 
 ## Required Provenance Headers
 
-Every `.md` file in `raw/` must start with these headers (see `wiki/admin/references/raw-template.md`):
+Every `.md` file in `raw/` must start with these headers (see `.obsidian/templates/raw-template.md`):
 
 ```markdown
 > Source: {URL, DOI, or origin description}

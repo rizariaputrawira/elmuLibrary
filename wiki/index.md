@@ -2,7 +2,7 @@
 title: "Knowledge Index"
 tags: [index, hub]
 version: "meta"
-updated: 2026-09-18
+updated: 2026-11-16
 sources: []
 summary: "Master navigation index for the personal Karpathy Knowledge Wiki."
 aliases: ["index", "home", "root-index"]
@@ -67,7 +67,6 @@ _Books, long-form papers, and articles filed by work — characters, themes, arg
 
 ---
 
-## ⚙️ Administration & Governance
+## 📜 Operations Log
 
-- [[admin-index]]: Administrative overview, templates, core AI rules, and pattern specifications.
 - [[log]]: Chronological compiler audit log of all wiki ingests, updates, and maintenance operations.

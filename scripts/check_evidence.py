@@ -30,7 +30,7 @@ Exit code semantics:
 
 Usage: check_evidence.py [project-root] [article.md ...]
 Defaults: project-root is current directory; all wiki/**/*.md articles
-except index.md, log.md, and admin/ are checked.
+except index.md, *-index.md, and log.md are checked.
 """
 
 from __future__ import annotations
@@ -66,7 +66,6 @@ FENCE_CLOSE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*$")
 WS_RE = re.compile(r"\s+")
 
 SKIP_FILES = {"index.md", "log.md"}
-SKIP_SUBSTRINGS = {"admin/", "references/", "meta/"}
 
 
 class Document(NamedTuple):
@@ -357,14 +356,8 @@ def check_article(article: Path, root: Path) -> tuple[list[str], list[str]]:
 def iter_articles(wiki_dir: Path):
     for path in sorted(wiki_dir.rglob("*.md")):
         rel = path.relative_to(wiki_dir).as_posix()
-        parts = path.relative_to(wiki_dir).parts
-        # Skip root indexes, domain indexes, logs, and administrative infrastructure
-        if (
-            rel in SKIP_FILES
-            or path.stem.endswith("-index")
-            or parts[0] == "admin"
-            or any(sub in rel for sub in SKIP_SUBSTRINGS)
-        ):
+        # Skip root indexes, domain indexes, and logs
+        if rel in SKIP_FILES or path.stem.endswith("-index"):
             continue
         yield path
 

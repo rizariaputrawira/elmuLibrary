@@ -34,7 +34,6 @@ class WikiScriptsTests(unittest.TestCase):
         self.root = Path(self._tmp.name)
         (self.root / "raw" / "ai-ml").mkdir(parents=True)
         (self.root / "wiki" / "ai-ml").mkdir(parents=True)
-        (self.root / "wiki" / "admin").mkdir(parents=True)
 
         (self.root / "raw" / "README.md").write_text("# Raw drop-zone\n", encoding="utf-8")
         (self.root / "wiki" / "index.md").write_text(

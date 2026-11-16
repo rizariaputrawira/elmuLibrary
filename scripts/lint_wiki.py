@@ -4,13 +4,13 @@
 Sweeps:
 1. Broken wikilinks — [[wikilinks]] whose target does not resolve to a file in
    wiki/ (by stem, path, or frontmatter alias) or in raw/ (for raw source links).
-2. Duplicate stems — non-admin notes sharing the same filename stem.
+2. Duplicate stems — compiled notes sharing the same filename stem.
 3. Orphan notes — wiki notes that no other note links to via [[wikilink]].
    index.md, log.md, and *-index.md domain hubs are excluded.
 4. Red links — concept slugs mentioned 2+ times across the wiki without a page.
 5. Missing concept hubs — 2+ versioned notes sharing a stem (<slug>-v<ver>.md)
    without an unversioned concept hub ([[<slug>]]).
-6. Unindexed notes — non-admin, non-archived leaf notes not registered in
+6. Unindexed notes — non-archived leaf notes not registered in
    wiki/index.md or any domain *-index.md catalog.
 7. Log format — validates ## [YYYY-MM-DD] <action> | ... headers in wiki/log.md.
 
@@ -36,16 +36,11 @@ FRONTMATTER_RE = re.compile(r"^\s*---\s*\n(.*?)\n---\s*(?:\n|$)", re.DOTALL)
 LOG_ENTRY_RE = re.compile(
     r"^## \[\d{4}-\d{2}-\d{2}\]\s+(?:bootstrap|ingest|update|refactor|archive|lint)\s*\|.+"
 )
-SKIP_ORPHAN_STEMS = {"index", "log", "admin-index"}
-SKIP_ADMIN = {"admin/"}
+SKIP_ORPHAN_STEMS = {"index", "log"}
 
 
 def iter_wiki_notes(wiki_dir: Path):
-    for path in sorted(wiki_dir.rglob("*.md")):
-        rel = path.relative_to(wiki_dir).as_posix()
-        if any(sub in rel for sub in SKIP_ADMIN):
-            continue
-        yield path
+    yield from sorted(wiki_dir.rglob("*.md"))
 
 
 def strip_fences_and_inline_code(text: str) -> str:
@@ -141,7 +136,7 @@ def main(argv: list[str]) -> int:
         print(f"no wiki/ directory under {root}")
         return 1
 
-    # Build slug/alias -> path map for all wiki notes (including admin/ as link targets)
+    # Build slug/alias -> path map for all wiki notes
     all_notes: dict[str, Path] = {}
     stem_paths: dict[str, list[Path]] = defaultdict(list)
     for path in sorted(wiki_dir.rglob("*.md")):
@@ -151,8 +146,7 @@ def main(argv: list[str]) -> int:
         all_notes[path.stem] = path
         norm_stem = normalize_key(path.stem)
         all_notes.setdefault(norm_stem, path)
-        if not rel.startswith("admin/"):
-            stem_paths[path.stem].append(path)
+        stem_paths[path.stem].append(path)
         for alias in parse_aliases(path.read_text(encoding="utf-8")):
             all_notes.setdefault(alias, path)
             all_notes.setdefault(normalize_key(alias), path)
