@@ -109,7 +109,7 @@ When knowledge is superseded by a newer source:
 ```
 
 ## 📁 Workspace Layout
-- **`raw/`**: Immutable primary sources. Treated as write-once, read-only grounding evidence.
+- **`raw/`**: Immutable primary sources (local-only and untracked by Git except `raw/README.md`, `.gitkeep`, and `raw/assets/.gitkeep`). Treated as write-once, read-only grounding evidence.
 - **`wiki/`**: Pure compiled knowledge base (concepts, technologies, frameworks, architectures — never repository config or usage guides).
   - `wiki/index.md`: Master domain index hub.
   - `wiki/log.md`: Append-only chronological compiler audit ledger.

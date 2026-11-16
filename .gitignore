@@ -32,3 +32,11 @@ scripts/__pycache__/
 **/__pycache__/
 *.pyc
 *.pyo
+
+# Raw Primary Sources (local-only; untracked by git due to large media/PDF/dataset size)
+raw/*
+!raw/.gitkeep
+!raw/README.md
+!raw/assets/
+raw/assets/*
+!raw/assets/.gitkeep

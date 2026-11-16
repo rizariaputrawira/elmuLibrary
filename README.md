@@ -20,7 +20,7 @@ Instead of performing query-time retrieval against unorganized document dumps, a
 │   ├── <domain>/             # Compiled domain articles, <domain>-index.md & concept hubs
 │   └── archive/              # Historical, point-in-time archived snapshots
 │
-├── 📥 raw/                    # Immutable Primary Sources (Grounding Tier)
+├── 📥 raw/                    # Immutable Primary Sources (local-only, gitignored except scaffolding)
 │   ├── README.md             # Raw source drop-zone specification & naming conventions
 │   ├── <topic>/              # Domain-specific primary sources (YYYY-MM-DD-slug.md/.pdf/.txt)
 │   └── assets/               # Downloaded images (Obsidian attachment folder)
