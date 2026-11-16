@@ -1,7 +1,8 @@
 ---
 title: "Karpathy LLM Wiki Pattern"
 tags: [meta, architecture, karpathy, llm-wiki]
-updated: 2026-09-18
+version: "meta"
+updated: 2026-11-16
 sources: []
 summary: "Foundational pattern for personal knowledge bases using LLMs to compile and maintain a persistent, compounding wiki."
 aliases: ["llm-wiki-pattern", "karpathy-pattern"]
@@ -51,11 +52,10 @@ flowchart LR
    - Drill into specific concept notes.
    - Syntheses from high-value queries can be crystallized back into the wiki as new permanent notes.
 3. **Lint & Maintain**:
-   - Periodically audit the wiki for orphan notes, broken links, conflicting claims, or outdated metrics using `scripts/check_evidence.py`.
+   - Periodically audit the wiki for frontmatter compliance, orphan notes, broken links, conflicting claims, or outdated metrics using `scripts/verify_all.py` (`check_frontmatter.py`, `lint_wiki.py`, `check_evidence.py`).
 
 ---
 
 ## Related Notes
 - [[karpathy-template]]: Specific markdown formatting, frontmatter protocol, and verification rules.
 - [[best-practices]]: Guidelines for high-signal synthesis and note lifecycle management.
-- [[core-ai-rules]]: Invariants for data preservation and credential safety.

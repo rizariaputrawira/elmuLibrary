@@ -1,7 +1,8 @@
 ---
 title: "Wiki Synthesis Best Practices"
 tags: [meta, rules, best-practices]
-updated: 2026-09-18
+version: "meta"
+updated: 2026-11-16
 sources: []
 summary: "Synthesis protocols, conflict handling, and lifecycle management for compiling high-signal notes."
 aliases: ["best-practices", "synthesis-rules"]
@@ -86,7 +87,44 @@ Images in clipped articles are useful — LLMs can view them separately to gain 
 
 ---
 
+## 8. Obsidian Dataview & Marp Workflows
+
+### Dataview Queries (Database Views over Frontmatter)
+Use Obsidian **Dataview** (`dataview` plugin) to query the 7-field YAML frontmatter dynamically without duplicating lists manually:
+
+- **Recently Updated Notes (excluding `wiki/admin/`):**
+  ````markdown
+  ```dataview
+  TABLE version, updated, summary
+  FROM "wiki" AND -"wiki/admin"
+  WHERE file.name != "index" AND file.name != "log"
+  SORT updated DESC
+  LIMIT 20
+  ```
+  ````
+- **Versioned Concept Hubs (`version: "meta"`):**
+  ````markdown
+  ```dataview
+  TABLE updated, summary
+  FROM "wiki" AND -"wiki/admin"
+  WHERE version = "meta" AND !contains(file.name, "-index")
+  SORT file.name ASC
+  ```
+  ````
+- **Filter Notes by Domain Tag:**
+  ````markdown
+  ```dataview
+  LIST summary
+  FROM #distributed-systems AND -"wiki/admin"
+  SORT updated DESC
+  ```
+  ````
+
+### Marp Slide Decks from Queries
+When a query output calls for a presentation, synthesize the compiled wiki notes into a **Marp** deck (`marp-slides` plugin) with `marp: true` in frontmatter and `---` slide separators, preserving `[[wikilinks]]` or source citations in slide footers.
+
+---
+
 ## Related Notes
 - [[llm-wiki-pattern]]: Overview of the Karpathy Wiki Pattern.
 - [[karpathy-template]]: Exact formatting rules and self-verification checklist.
-- [[core-ai-rules]]: Core safety and data lifecycle invariants.

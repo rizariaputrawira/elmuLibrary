@@ -11,6 +11,7 @@ aliases: []
 # {{title}}
 
 > Version: 
+> Bundle: 
 > Raw: [[../../raw/...]]
 > Updated: {{date}}
 

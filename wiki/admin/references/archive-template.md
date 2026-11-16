@@ -1,6 +1,7 @@
 ---
 title: "{Title} (Archived Snapshot)"
 tags: [archive, snapshot]
+version: "{Version or meta}"
 updated: {YYYY-MM-DD}
 sources: ["raw/{domain}/{source-file}.md"]
 summary: "Archived point-in-time snapshot of {topic}."
@@ -9,7 +10,8 @@ aliases: ["{archived-alias}"]
 
 # {Title} (Archived Snapshot)
 
-> Sources: [{Cited Source 1}](source1.md); [{Cited Source 2}](../other-domain/source2.md)
+> Version: {Version or meta}
+> Raw: [[../../raw/{domain}/{source-file}.md]]
 > Archived: {YYYY-MM-DD}
 > Reason: {Superseded by newer architecture / deprecated}
 

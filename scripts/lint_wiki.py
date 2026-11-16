@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """Wiki health linter for a Karpathy-style LLM wiki.
 
-Three sweeps:
-
-1. Orphan notes — wiki notes that no other note links to via [[wikilink]].
-   index.md, log.md, and domain index files are excluded from the orphan check
-   (they are hubs, not leaves).
-2. Broken wikilinks — [[wikilinks]] that reference a slug that doesn't
-   correspond to any .md file in wiki/.
-3. Missing pages — concept slugs mentioned as [[wikilinks]] more than once
-   across the wiki but lacking their own .md file (i.e., red links that
-   should probably be stubs).
+Sweeps:
+1. Broken wikilinks — [[wikilinks]] whose target does not resolve to a file in
+   wiki/ (by stem, path, or frontmatter alias) or in raw/ (for raw source links).
+2. Duplicate stems — non-admin notes sharing the same filename stem.
+3. Orphan notes — wiki notes that no other note links to via [[wikilink]].
+   index.md, log.md, and *-index.md domain hubs are excluded.
+4. Red links — concept slugs mentioned 2+ times across the wiki without a page.
+5. Missing concept hubs — 2+ versioned notes sharing a stem (<slug>-v<ver>.md)
+   without an unversioned concept hub ([[<slug>]]).
+6. Unindexed notes — non-admin, non-archived leaf notes not registered in
+   wiki/index.md or any domain *-index.md catalog.
+7. Log format — validates ## [YYYY-MM-DD] <action> | ... headers in wiki/log.md.
 
 Exit code semantics:
 - Returns 0 when 0 broken wikilinks are detected.
-  (Orphans and missing pages are reported as warnings, not errors.)
+  (Other findings are reported as warnings.)
 - Returns 1 when broken wikilinks are found (they break Obsidian navigation).
 
 Usage: lint_wiki.py [project-root]
@@ -30,6 +32,10 @@ from pathlib import Path
 
 WIKILINK_RE = re.compile(r"\[\[([^\]|#]+?)(?:[|#][^\]]*)?\]\]")
 VERSIONED_STEM_RE = re.compile(r"^(?P<stem>.+?)-v(?P<ver>\d+(?:[-_.]\d+)*)$")
+FRONTMATTER_RE = re.compile(r"^\s*---\s*\n(.*?)\n---\s*(?:\n|$)", re.DOTALL)
+LOG_ENTRY_RE = re.compile(
+    r"^## \[\d{4}-\d{2}-\d{2}\]\s+(?:bootstrap|ingest|update|refactor|archive|lint)\s*\|.+"
+)
 SKIP_ORPHAN_STEMS = {"index", "log", "admin-index"}
 SKIP_ADMIN = {"admin/"}
 
@@ -42,18 +48,90 @@ def iter_wiki_notes(wiki_dir: Path):
         yield path
 
 
-def parse_wikilinks(text: str) -> list[str]:
-    """Extract all [[wikilink]] slugs from text, stripping fences."""
-    # Strip fenced code blocks to avoid matching links in examples
+def strip_fences_and_inline_code(text: str) -> str:
     text = re.sub(r"```[\s\S]*?```", " ", text)
-    text = re.sub(r"`[^`\n]*`", " ", text)
-    return [m.group(1).strip() for m in WIKILINK_RE.finditer(text)]
+    return re.sub(r"`[^`\n]*`", " ", text)
+
+
+def parse_wikilinks(text: str) -> list[str]:
+    """Extract all [[wikilink]] targets from text, ignoring code blocks."""
+    cleaned = strip_fences_and_inline_code(text)
+    return [m.group(1).strip() for m in WIKILINK_RE.finditer(cleaned)]
+
+
+def parse_aliases(text: str) -> list[str]:
+    """Extract aliases list from YAML frontmatter if present."""
+    m = FRONTMATTER_RE.match(text)
+    if not m:
+        return []
+    aliases: list[str] = []
+    in_aliases = False
+    for line in m.group(1).splitlines():
+        stripped = line.strip()
+        if stripped.startswith("aliases:"):
+            in_aliases = True
+            val = stripped[len("aliases:") :].strip()
+            if val.startswith("[") and val.endswith("]"):
+                for item in val[1:-1].split(","):
+                    clean = item.strip().strip("\"'").strip()
+                    if clean:
+                        aliases.append(clean)
+                in_aliases = False
+            continue
+        if in_aliases:
+            if stripped.startswith("- "):
+                clean = stripped[2:].strip().strip("\"'").strip()
+                if clean:
+                    aliases.append(clean)
+            elif stripped and not stripped.startswith("#"):
+                in_aliases = False
+    return aliases
+
+
+def normalize_key(name: str) -> str:
+    return re.sub(r"\s+", "-", name.strip().lower())
+
+
+def is_raw_wikilink(slug: str) -> bool:
+    """Return True if slug is a path targeting the raw/ directory."""
+    clean = slug.strip()
+    return clean.startswith("raw/") or "../raw/" in clean
+
+
+def resolve_raw_link(slug: str, note: Path, root: Path) -> bool:
+    """Verify that a raw/ wikilink resolves to an existing file inside raw/."""
+    raw_root = (root / "raw").resolve()
+    target = (root / slug).resolve() if slug.startswith("raw/") else (note.parent / slug).resolve()
+    return target.is_relative_to(raw_root) and target.is_file()
 
 
 def resolve_slug(slug: str, all_notes: dict[str, Path]) -> Path | None:
-    """Return the .md path for a slug if it exists, else None."""
-    name = Path(slug).stem
-    return all_notes.get(slug) or all_notes.get(name) or all_notes.get(re.sub(r"\s+", "-", name.lower()))
+    """Return the .md path for a wiki slug or alias if it exists, else None."""
+    clean = slug.strip()
+    if clean.endswith(".md"):
+        clean = clean[:-3]
+    name = Path(clean).stem
+    return (
+        all_notes.get(clean)
+        or all_notes.get(name)
+        or all_notes.get(normalize_key(clean))
+        or all_notes.get(normalize_key(name))
+    )
+
+
+def check_log_format(log_file: Path) -> list[tuple[int, str]]:
+    """Return list of (line_number, line) for malformed ## headings in wiki/log.md."""
+    if not log_file.is_file():
+        return []
+    malformed: list[tuple[int, str]] = []
+    in_fence = False
+    for idx, line in enumerate(log_file.read_text(encoding="utf-8").splitlines(), start=1):
+        if line.strip().startswith(("```", "~~~")):
+            in_fence = not in_fence
+            continue
+        if not in_fence and line.startswith("## ") and not LOG_ENTRY_RE.match(line):
+            malformed.append((idx, line))
+    return malformed
 
 
 def main(argv: list[str]) -> int:
@@ -63,28 +141,45 @@ def main(argv: list[str]) -> int:
         print(f"no wiki/ directory under {root}")
         return 1
 
-    # Build slug → path map for all wiki notes
+    # Build slug/alias -> path map for all wiki notes (including admin/ as link targets)
     all_notes: dict[str, Path] = {}
-    for path in wiki_dir.rglob("*.md"):
+    stem_paths: dict[str, list[Path]] = defaultdict(list)
+    for path in sorted(wiki_dir.rglob("*.md")):
+        rel = path.relative_to(wiki_dir).as_posix()
+        rel_no_ext = rel[:-3] if rel.endswith(".md") else rel
+        all_notes[rel_no_ext] = path
         all_notes[path.stem] = path
-        # also index by kebab-normalized name
-        normalized = re.sub(r"\s+", "-", path.stem.lower())
-        if normalized != path.stem:
-            all_notes[normalized] = path
+        norm_stem = normalize_key(path.stem)
+        all_notes.setdefault(norm_stem, path)
+        if not rel.startswith("admin/"):
+            stem_paths[path.stem].append(path)
+        for alias in parse_aliases(path.read_text(encoding="utf-8")):
+            all_notes.setdefault(alias, path)
+            all_notes.setdefault(normalize_key(alias), path)
 
-    # Sweep: collect all wikilinks per file and build inbound link map
     outbound: dict[Path, list[str]] = {}
-    inbound: dict[str, list[str]] = defaultdict(list)  # slug → list of source files
-    mention_count: dict[str, int] = defaultdict(int)   # slug → how many files mention it
+    inbound: dict[str, list[str]] = defaultdict(list)
+    mention_count: dict[str, int] = defaultdict(int)
+    indexed_stems: set[str] = set()
 
     for note in iter_wiki_notes(wiki_dir):
         text = note.read_text(encoding="utf-8")
         links = parse_wikilinks(text)
         outbound[note] = links
         source_label = note.relative_to(wiki_dir).as_posix()
+        is_index_hub = note.stem == "index" or note.stem.endswith("-index")
+
         for slug in links:
-            inbound[slug].append(source_label)
-            mention_count[slug] += 1
+            if is_raw_wikilink(slug):
+                continue
+            target = resolve_slug(slug, all_notes)
+            if target is not None:
+                inbound[target.stem].append(source_label)
+                if is_index_hub:
+                    indexed_stems.add(target.stem)
+            else:
+                inbound[slug].append(source_label)
+                mention_count[slug] += 1
 
     print("# Wiki health lint\n")
 
@@ -94,8 +189,11 @@ def main(argv: list[str]) -> int:
     for note in sorted(iter_wiki_notes(wiki_dir)):
         broken = []
         for slug in outbound.get(note, []):
-            target = resolve_slug(slug, all_notes)
-            if target is None:
+            if is_raw_wikilink(slug):
+                if not resolve_raw_link(slug, note, root):
+                    broken.append(slug)
+                    broken_count += 1
+            elif resolve_slug(slug, all_notes) is None:
                 broken.append(slug)
                 broken_count += 1
         if broken:
@@ -106,14 +204,25 @@ def main(argv: list[str]) -> int:
     if broken_count == 0:
         print("(none)")
 
-    # --- Sweep 2: Orphan notes ---
+    # --- Sweep 2: Duplicate stems ---
+    print("\n## Duplicate note stems")
+    dup_count = 0
+    for stem, paths in sorted(stem_paths.items()):
+        if len(paths) > 1:
+            locs = ", ".join(p.relative_to(wiki_dir).as_posix() for p in paths)
+            print(f"  - {stem}: {locs}")
+            dup_count += 1
+    if dup_count == 0:
+        print("(none)")
+
+    # --- Sweep 3: Orphan notes ---
     print("\n## Orphan notes (no inbound links)")
     orphan_count = 0
     for note in sorted(iter_wiki_notes(wiki_dir)):
         note_stem = note.stem
         if note_stem in SKIP_ORPHAN_STEMS or note_stem.endswith("-index"):
             continue
-        if note_stem not in inbound or not inbound[note_stem]:
+        if not inbound.get(note_stem):
             label = note.relative_to(wiki_dir).as_posix()
             print(f"  - {label}")
             orphan_count += 1
@@ -122,14 +231,13 @@ def main(argv: list[str]) -> int:
     else:
         print(f"\n⚠ {orphan_count} orphan note(s) — consider adding backlinks or registering in domain index")
 
-    # --- Sweep 3: Red links (mentioned multiple times but no page) ---
+    # --- Sweep 4: Red links (mentioned multiple times but no page) ---
     print("\n## Red links (mentioned 2+ times, no page exists)")
     red_count = 0
     for slug, count in sorted(mention_count.items(), key=lambda x: -x[1]):
         if count < 2:
             continue
-        target = resolve_slug(slug, all_notes)
-        if target is None:
+        if resolve_slug(slug, all_notes) is None:
             print(f"  - [[{slug}]] — mentioned {count}× but no page exists")
             red_count += 1
     if red_count == 0:
@@ -137,7 +245,7 @@ def main(argv: list[str]) -> int:
     else:
         print(f"\n⚠ {red_count} red link(s) — consider creating stub pages")
 
-    # --- Sweep 4: Missing concept hubs (2+ versioned notes sharing a stem) ---
+    # --- Sweep 5: Missing concept hubs (2+ versioned notes sharing a stem) ---
     print("\n## Missing concept hubs")
     stem_groups: dict[str, list[str]] = defaultdict(list)
     for note in iter_wiki_notes(wiki_dir):
@@ -147,20 +255,50 @@ def main(argv: list[str]) -> int:
 
     missing_hub_count = 0
     for stem, variants in sorted(stem_groups.items()):
-        if len(variants) >= 2:
-            target = resolve_slug(stem, all_notes)
-            if target is None:
-                links = ", ".join(f"[[{v}]]" for v in sorted(variants))
-                print(f"  - Concept '{stem}' has {len(variants)} versions ({links}) but lacks unversioned concept hub [[{stem}]]")
-                missing_hub_count += 1
+        if len(variants) >= 2 and resolve_slug(stem, all_notes) is None:
+            links = ", ".join(f"[[{v}]]" for v in sorted(variants))
+            print(f"  - Concept '{stem}' has {len(variants)} versions ({links}) but lacks unversioned concept hub [[{stem}]]")
+            missing_hub_count += 1
     if missing_hub_count == 0:
         print("(none)")
     else:
         print(f"\n⚠ {missing_hub_count} concept hub(s) missing — consider establishing unversioned concept hubs")
 
-    print(f"\n## Summary\n{broken_count} broken wikilink(s), {orphan_count} orphan(s), {red_count} red link(s), {missing_hub_count} missing concept hub(s)")
+    # --- Sweep 6: Unindexed leaf notes ---
+    print("\n## Unindexed leaf notes (not linked from index.md or *-index.md)")
+    unindexed_count = 0
+    for note in sorted(iter_wiki_notes(wiki_dir)):
+        rel_parts = note.relative_to(wiki_dir).parts
+        if (
+            note.stem in SKIP_ORPHAN_STEMS
+            or note.stem.endswith("-index")
+            or "archive" in rel_parts
+        ):
+            continue
+        if note.stem not in indexed_stems:
+            print(f"  - {note.relative_to(wiki_dir).as_posix()}")
+            unindexed_count += 1
+    if unindexed_count == 0:
+        print("(none)")
+    else:
+        print(f"\n⚠ {unindexed_count} unindexed note(s) — register in wiki/index.md or domain *-index.md")
 
-    # Only broken wikilinks are hard errors (they break Obsidian navigation)
+    # --- Sweep 7: Log format check ---
+    print("\n## Log format warnings")
+    malformed_logs = check_log_format(wiki_dir / "log.md")
+    for line_no, line in malformed_logs:
+        print(f"  - wiki/log.md:{line_no}: malformed entry header: {line}")
+    if not malformed_logs:
+        print("(none)")
+
+    print(
+        f"\n## Summary\n"
+        f"{broken_count} broken wikilink(s), {dup_count} duplicate stem(s), "
+        f"{orphan_count} orphan(s), {red_count} red link(s), "
+        f"{missing_hub_count} missing concept hub(s), {unindexed_count} unindexed note(s), "
+        f"{len(malformed_logs)} log format warning(s)"
+    )
+
     return 1 if broken_count > 0 else 0
 
 

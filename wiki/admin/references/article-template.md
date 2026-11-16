@@ -11,7 +11,7 @@ aliases: ["{alias-1}", "{alias-2}"]
 # {Article Title}
 
 > Version: {Version e.g. 2026.03}
-> Sources: {Author/Institution, YYYY-MM-DD}
+> Bundle: {Optional bundle version if different from Version}
 > Raw: [[../../raw/{domain}/{source-file}.md]]
 > Updated: {YYYY-MM-DD}
 

@@ -47,12 +47,16 @@ NUMBER_TOKEN_RE = re.compile(
 SUFFIX_RE = re.compile(r"[KMB%]$")
 DATE_RE = re.compile(r"\d{4}-\d{2}(?:-\d{2})?")
 QUOTE_RES = [re.compile(r'"([^"\n]*)"'), re.compile(r"“([^”\n]*)”")]
-METADATA_RE = re.compile(r"^>\s*(Sources?|Raw|Collected|Published|Updated|Archived):")
+FRONTMATTER_RE = re.compile(r"^\s*---\s*\n.*?\n---\s*(?:\n|$)", re.DOTALL)
+METADATA_RE = re.compile(
+    r"^>\s*(Sources?|Raw|Collected|Published|Updated|Archived|Version|Bundle|Reason):",
+    re.IGNORECASE,
+)
 STATUS_LINE_RE = re.compile(r"^>\s*\*\*Status:")
 LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
 INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
-RAW_LINK_RE = re.compile(r"\(([^)]+\.md)[^)]*\)")
-WIKILINK_RE = re.compile(r"\[\[([^\]]+\.md)\]\]")
+RAW_LINK_RE = re.compile(r"\(([^)]+\.(?:md|txt))[^)]*\)")
+WIKILINK_RE = re.compile(r"\[\[([^\]]+\.(?:md|txt))\]\]")
 NO_MATERIAL_HEADING_RE = re.compile(
     r"^## \[[^\]]*\]\s*ingest\s*\|\s*no material:\s*(\S+)", re.IGNORECASE
 )
@@ -62,7 +66,7 @@ FENCE_CLOSE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*$")
 WS_RE = re.compile(r"\s+")
 
 SKIP_FILES = {"index.md", "log.md"}
-SKIP_SUBSTRINGS = {"admin/", "references/", "meta/", "core-system-rules/"}
+SKIP_SUBSTRINGS = {"admin/", "references/", "meta/"}
 
 
 class Document(NamedTuple):
@@ -98,9 +102,11 @@ def is_fence_closer(line: str, char: str, length: int) -> bool:
 def parse_document(text: str) -> Document:
     """Return the visible title, metadata header, and body.
 
-    The metadata header is only the contiguous blockquote immediately
-    after the first H1 outside a fence.
+    Strips leading YAML frontmatter so metadata fields (summary, updated,
+    version, etc.) are not misparsed as body claims. The metadata header is
+    the contiguous blockquote immediately after the first H1 outside a fence.
     """
+    text = FRONTMATTER_RE.sub("", text, count=1)
     title = None
     header = []
     preamble = []
@@ -257,7 +263,7 @@ def raw_links_of(article_text: str) -> list[str]:
                         items = val[1:-1].split(",")
                         for item in items:
                             clean = item.strip().strip("\"'").strip()
-                            if clean and (clean.startswith("raw/") or clean.endswith(".md")):
+                            if clean and (clean.startswith("raw/") or clean.endswith((".md", ".txt"))):
                                 links.append(clean)
                         in_sources = False
                     continue
@@ -294,6 +300,14 @@ def source_content(path: Path) -> str:
     return normalize("\n".join(document.body))
 
 
+def is_meta_hub(text: str) -> bool:
+    """Return True when YAML frontmatter declares version: meta."""
+    m = FRONTMATTER_RE.match(text)
+    if not m:
+        return False
+    return re.search(r'^version:\s*["\']?meta["\']?\s*$', m.group(0), re.MULTILINE) is not None
+
+
 def check_article(article: Path, root: Path) -> tuple[list[str], list[str]]:
     """Return (fidelity suspects, evidence errors) for one article."""
     text = article.read_text(encoding="utf-8")
@@ -302,6 +316,9 @@ def check_article(article: Path, root: Path) -> tuple[list[str], list[str]]:
         # Check if it's an archived point-in-time snapshot
         if any(ARCHIVED_RE.match(line.strip()) for line in parse_document(text).header) or "archive" in article.as_posix():
             return [], []
+        if is_meta_hub(text):
+            misses = [normalize(c.value) for c in extract_candidates(text)]
+            return misses, []
         return [], ["article has no Raw or sources field"]
 
     raw_root = (root / "raw").resolve()
@@ -318,8 +335,15 @@ def check_article(article: Path, root: Path) -> tuple[list[str], list[str]]:
             errors.append(f"Raw link escapes raw/: {link}")
         elif not target.is_file():
             errors.append(f"unresolvable Raw link: {link}")
-        else:
+        elif target.suffix.lower() in {".md", ".txt"}:
             raws.append(source_content(target))
+        else:
+            companion = target.with_name(f"{target.stem}-provenance.md")
+            txt_companion = target.with_suffix(".txt")
+            if companion.is_file():
+                raws.append(source_content(companion))
+            elif txt_companion.is_file():
+                raws.append(source_content(txt_companion))
 
     misses = []
     if raws:
@@ -334,9 +358,10 @@ def iter_articles(wiki_dir: Path):
     for path in sorted(wiki_dir.rglob("*.md")):
         rel = path.relative_to(wiki_dir).as_posix()
         parts = path.relative_to(wiki_dir).parts
-        # Skip root indexes, logs, and administrative infrastructure
+        # Skip root indexes, domain indexes, logs, and administrative infrastructure
         if (
             rel in SKIP_FILES
+            or path.stem.endswith("-index")
             or parts[0] == "admin"
             or any(sub in rel for sub in SKIP_SUBSTRINGS)
         ):
@@ -376,10 +401,14 @@ def unreferenced_raws(root: Path) -> list[str]:
     referenced = referenced_raws(root)
     disposed = no_material_paths(root / "wiki" / "log.md")
     missing = []
-    for path in sorted(raw_dir.rglob("*.md")):
-        if path.resolve() not in referenced and path.relative_to(root).as_posix() not in disposed:
-            missing.append(path.relative_to(root).as_posix())
-    return missing
+    for ext in ("*.md", "*.txt"):
+        for path in sorted(raw_dir.rglob(ext)):
+            rel = path.relative_to(root).as_posix()
+            if rel == "raw/README.md":
+                continue
+            if path.resolve() not in referenced and rel not in disposed:
+                missing.append(rel)
+    return sorted(missing)
 
 
 def main(argv: list[str]) -> int:
@@ -396,7 +425,7 @@ def main(argv: list[str]) -> int:
             path = root / path
         try:
             rel = path.resolve().relative_to(wiki_dir).as_posix()
-            if rel in SKIP_FILES:
+            if rel in SKIP_FILES or path.stem.endswith("-index"):
                 print(f"warning: {arg} is an index/log file, skipping", file=sys.stderr)
                 continue
         except ValueError:
